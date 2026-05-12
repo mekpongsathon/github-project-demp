@@ -61,7 +61,7 @@ jobs:
 
             // หา project item id
             const itemQuery = `
-              query($project:ID!, $issue:ID!) {
+              query($project:ID!) {
                 node(id:$project) {
                   ... on ProjectV2 {
                     items(first:100) {
