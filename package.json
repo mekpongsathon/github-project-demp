@@ -6,6 +6,7 @@
     "start-work": "tsx tools/workflows/start-work.ts",
     "open-pr": "tsx tools/workflows/open-pr.ts",
     "check-status": "tsx tools/workflows/check-status.ts",
+    "update-status": "tsx tools/workflows/update-status.ts",
     "discover-ids": "tsx tools/workflows/discover-ids.ts"
   },
   "dependencies": {},
