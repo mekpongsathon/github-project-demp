@@ -33,18 +33,19 @@ $fieldEnvMap = @{
     uat  = "WORKFLOW_DEPLOY_UAT_FIELD_ID"
     prod = "WORKFLOW_DEPLOY_PROD_FIELD_ID"
 }
-$optionEnvMap = @{
-    waiting   = "WORKFLOW_DEPLOY_WAITING_OPTION_ID"
-    deploying = "WORKFLOW_DEPLOY_DEPLOYING_OPTION_ID"
-    deployed  = "WORKFLOW_DEPLOY_DEPLOYED_OPTION_ID"
-    failed    = "WORKFLOW_DEPLOY_FAILED_OPTION_ID"
-}
+
+# Option IDs differ per environment (each deploy field has its own option IDs)
+$optionEnvVar = "WORKFLOW_DEPLOY_$($Env.ToUpper())_$($Status.ToUpper())_OPTION_ID"
 
 $fieldId  = [System.Environment]::GetEnvironmentVariable($fieldEnvMap[$Env])
-$optionId = [System.Environment]::GetEnvironmentVariable($optionEnvMap[$Status])
+$optionId = [System.Environment]::GetEnvironmentVariable($optionEnvVar)
 
-if (-not $fieldId -or -not $optionId) {
-    Write-Error "Missing deploy field/option config for env=$Env status=$Status"
+if (-not $fieldId) {
+    Write-Error "Missing field ID for env=$Env. Set $($fieldEnvMap[$Env]) in .env"
+    exit 1
+}
+if (-not $optionId) {
+    Write-Error "Missing option ID for env=$Env status=$Status. Set $optionEnvVar in .env"
     exit 1
 }
 

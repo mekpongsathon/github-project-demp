@@ -1,4 +1,4 @@
-name: PR Merged — Update Issues to Done
+name: PR Merged - Update Status to Done
 
 on:
   pull_request:
@@ -7,120 +7,21 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
-  issues: read
 
 jobs:
   update-status:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
 
+    env:
+      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+      PROJECT_ID: ${{ vars.WORKFLOW_PROJECT_ID }}
+      FIELD_ID: ${{ vars.WORKFLOW_STATUS_FIELD_ID }}
+      OPTION_ID: ${{ vars.WORKFLOW_DONE_OPTION_ID }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+
     steps:
-      - name: Update Linked Issues to Done
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.PAT_TOKEN }}
-          script: |
-            const PROJECT_ID      = process.env.PROJECT_ID;
-            const STATUS_FIELD_ID = process.env.STATUS_FIELD_ID;
-            const DONE_OPTION_ID  = process.env.DONE_OPTION_ID;
+      - uses: actions/checkout@v4
 
-            if (!PROJECT_ID || !STATUS_FIELD_ID || !DONE_OPTION_ID) {
-              core.setFailed("Missing required environment variables: PROJECT_ID, STATUS_FIELD_ID, DONE_OPTION_ID");
-              return;
-            }
-
-            const pr = context.payload.pull_request;
-
-            const linkedIssuesQuery = `
-              query($owner: String!, $repo: String!, $number: Int!) {
-                repository(owner: $owner, name: $repo) {
-                  pullRequest(number: $number) {
-                    closingIssuesReferences(first: 20) {
-                      nodes { id number }
-                    }
-                  }
-                }
-              }
-            `;
-
-            const linkedResult = await github.graphql(linkedIssuesQuery, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              number: pr.number
-            });
-
-            const linkedIssues =
-              linkedResult.repository.pullRequest.closingIssuesReferences.nodes;
-
-            if (!linkedIssues || linkedIssues.length === 0) {
-              console.log("No linked issues found — skipping");
-              return;
-            }
-
-            console.log(`Found ${linkedIssues.length} linked issue(s):`, linkedIssues.map(i => `#${i.number}`).join(", "));
-
-            const projectItemsQuery = `
-              query($project: ID!) {
-                node(id: $project) {
-                  ... on ProjectV2 {
-                    items(first: 100) {
-                      nodes {
-                        id
-                        content { ... on Issue { id } }
-                      }
-                    }
-                  }
-                }
-              }
-            `;
-
-            const projectResult = await github.graphql(projectItemsQuery, {
-              project: PROJECT_ID
-            });
-
-            const projectItems = projectResult.node.items.nodes;
-
-            const updateMutation = `
-              mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
-                updateProjectV2ItemFieldValue(
-                  input: {
-                    projectId: $project
-                    itemId: $item
-                    fieldId: $field
-                    value: { singleSelectOptionId: $option }
-                  }
-                ) {
-                  projectV2Item { id }
-                }
-              }
-            `;
-
-            let updatedCount = 0;
-
-            for (const issue of linkedIssues) {
-              const item = projectItems.find(
-                i => i.content && i.content.id === issue.id
-              );
-
-              if (!item) {
-                console.warn(`Issue #${issue.number} not found in project — skipping`);
-                continue;
-              }
-
-              await github.graphql(updateMutation, {
-                project: PROJECT_ID,
-                item: item.id,
-                field: STATUS_FIELD_ID,
-                option: DONE_OPTION_ID
-              });
-
-              console.log(`✓ Issue #${issue.number} → Done`);
-              updatedCount++;
-            }
-
-            console.log(`Done: ${updatedCount} issue(s) updated`);
-        env:
-          PROJECT_ID: ${{ vars.WORKFLOW_PROJECT_ID }}
-          STATUS_FIELD_ID: ${{ vars.WORKFLOW_STATUS_FIELD_ID }}
-          DONE_OPTION_ID: ${{ vars.WORKFLOW_DONE_OPTION_ID }}
+      - name: Update linked issues to Done
+        run: bash .github/scripts/update-project-field.sh

@@ -24,16 +24,14 @@ function Get-EnvConfig {
         }
         return
     }
-    # Load .env file if present
+    # Load .env file if present — always overwrite to avoid stale process vars
     $envFile = Join-Path (Get-Location) ".env"
     if (Test-Path $envFile) {
         Get-Content $envFile | ForEach-Object {
             if ($_ -match "^\s*([^#][^=]+)=(.+)$") {
                 $key = $Matches[1].Trim()
                 $val = $Matches[2].Trim().Trim('"').Trim("'")
-                if (-not [System.Environment]::GetEnvironmentVariable($key)) {
-                    [System.Environment]::SetEnvironmentVariable($key, $val, "Process")
-                }
+                [System.Environment]::SetEnvironmentVariable($key, $val, "Process")
             }
         }
     }
@@ -150,7 +148,7 @@ query(`$project: ID!) {
 }
 "@ -Variables @{ project = $projectId }
     $item = $data.node.items.nodes | Where-Object { $_.content.id -eq $IssueNodeId }
-    return $item?.id
+    if ($item) { return $item.id } else { return $null }
 }
 
 function Update-ProjectField {
@@ -177,6 +175,31 @@ mutation(`$project: ID!, `$item: ID!, `$field: ID!, `$option: String!) {
         field   = $FieldId
         option  = $OptionId
     } | Out-Null
+}
+
+function Get-ProjectFields {
+    # Returns all fields of the configured Project V2 (useful for discovering IDs)
+    $projectId = [System.Environment]::GetEnvironmentVariable("WORKFLOW_PROJECT_ID")
+    $data = Invoke-GitHubGraphQL -Query @"
+query(`$project: ID!) {
+  node(id: `$project) {
+    ... on ProjectV2 {
+      fields(first: 30) {
+        nodes {
+          ... on ProjectV2SingleSelectField {
+            id name
+            options { id name }
+          }
+          ... on ProjectV2Field {
+            id name
+          }
+        }
+      }
+    }
+  }
+}
+"@ -Variables @{ project = $projectId }
+    return $data.node.fields.nodes
 }
 
 function Update-IssuesStatus {

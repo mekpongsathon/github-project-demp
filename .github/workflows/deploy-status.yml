@@ -1,4 +1,4 @@
-name: Deploy — Update Project Deploy Status
+name: Deploy - Update Project Deploy Status
 
 on:
   workflow_call:
@@ -19,140 +19,52 @@ on:
       PAT_TOKEN:
         required: true
 
+  # Allow manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        required: true
+        type: number
+        description: "PR number"
+      environment:
+        required: true
+        type: choice
+        options: [dev, uat, prod]
+      status:
+        required: true
+        type: choice
+        options: [waiting, deploying, deployed, failed]
+
 jobs:
   update-deploy-status:
     runs-on: ubuntu-latest
 
+    env:
+      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+      PROJECT_ID: ${{ vars.WORKFLOW_PROJECT_ID }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+      DEPLOY_STATUS: ${{ inputs.status }}
+      # Field IDs per environment
+      DEPLOY_DEV_FIELD_ID: ${{ vars.WORKFLOW_DEPLOY_DEV_FIELD_ID }}
+      DEPLOY_UAT_FIELD_ID: ${{ vars.WORKFLOW_DEPLOY_UAT_FIELD_ID }}
+      DEPLOY_PROD_FIELD_ID: ${{ vars.WORKFLOW_DEPLOY_PROD_FIELD_ID }}
+      # Option IDs per environment (each deploy field has its own option IDs)
+      DEPLOY_DEV_WAITING_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_DEV_WAITING_OPTION_ID }}
+      DEPLOY_DEV_DEPLOYING_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_DEV_DEPLOYING_OPTION_ID }}
+      DEPLOY_DEV_DEPLOYED_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_DEV_DEPLOYED_OPTION_ID }}
+      DEPLOY_DEV_FAILED_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_DEV_FAILED_OPTION_ID }}
+      DEPLOY_UAT_WAITING_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_UAT_WAITING_OPTION_ID }}
+      DEPLOY_UAT_DEPLOYING_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_UAT_DEPLOYING_OPTION_ID }}
+      DEPLOY_UAT_DEPLOYED_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_UAT_DEPLOYED_OPTION_ID }}
+      DEPLOY_UAT_FAILED_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_UAT_FAILED_OPTION_ID }}
+      DEPLOY_PROD_WAITING_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_PROD_WAITING_OPTION_ID }}
+      DEPLOY_PROD_DEPLOYING_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_PROD_DEPLOYING_OPTION_ID }}
+      DEPLOY_PROD_DEPLOYED_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_PROD_DEPLOYED_OPTION_ID }}
+      DEPLOY_PROD_FAILED_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_PROD_FAILED_OPTION_ID }}
+
     steps:
-      - name: Update Deploy Status on Project V2
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.PAT_TOKEN }}
-          script: |
-            const PROJECT_ID = process.env.PROJECT_ID;
-            const ENVIRONMENT = process.env.ENVIRONMENT;
-            const STATUS      = process.env.STATUS;
+      - uses: actions/checkout@v4
 
-            // field IDs ต่อ environment
-            const DEPLOY_FIELD_MAP = {
-              dev:  process.env.DEPLOY_DEV_FIELD_ID,
-              uat:  process.env.DEPLOY_UAT_FIELD_ID,
-              prod: process.env.DEPLOY_PROD_FIELD_ID
-            };
-
-            // option IDs ต่อ status
-            const DEPLOY_OPTION_MAP = {
-              waiting:   process.env.DEPLOY_WAITING_OPTION_ID,
-              deploying: process.env.DEPLOY_DEPLOYING_OPTION_ID,
-              deployed:  process.env.DEPLOY_DEPLOYED_OPTION_ID,
-              failed:    process.env.DEPLOY_FAILED_OPTION_ID
-            };
-
-            const fieldId  = DEPLOY_FIELD_MAP[ENVIRONMENT];
-            const optionId = DEPLOY_OPTION_MAP[STATUS];
-
-            if (!PROJECT_ID || !fieldId || !optionId) {
-              core.setFailed(`Missing config for environment="${ENVIRONMENT}" status="${STATUS}"`);
-              return;
-            }
-
-            const prNumber = parseInt(process.env.PR_NUMBER, 10);
-
-            const linkedIssuesQuery = `
-              query($owner: String!, $repo: String!, $number: Int!) {
-                repository(owner: $owner, name: $repo) {
-                  pullRequest(number: $number) {
-                    closingIssuesReferences(first: 20) {
-                      nodes { id number }
-                    }
-                  }
-                }
-              }
-            `;
-
-            const linkedResult = await github.graphql(linkedIssuesQuery, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              number: prNumber
-            });
-
-            const linkedIssues =
-              linkedResult.repository.pullRequest.closingIssuesReferences.nodes;
-
-            if (!linkedIssues || linkedIssues.length === 0) {
-              console.log("No linked issues found — skipping");
-              return;
-            }
-
-            const projectItemsQuery = `
-              query($project: ID!) {
-                node(id: $project) {
-                  ... on ProjectV2 {
-                    items(first: 100) {
-                      nodes {
-                        id
-                        content { ... on Issue { id } }
-                      }
-                    }
-                  }
-                }
-              }
-            `;
-
-            const projectResult = await github.graphql(projectItemsQuery, {
-              project: PROJECT_ID
-            });
-
-            const projectItems = projectResult.node.items.nodes;
-
-            const updateMutation = `
-              mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
-                updateProjectV2ItemFieldValue(
-                  input: {
-                    projectId: $project
-                    itemId: $item
-                    fieldId: $field
-                    value: { singleSelectOptionId: $option }
-                  }
-                ) {
-                  projectV2Item { id }
-                }
-              }
-            `;
-
-            let updatedCount = 0;
-
-            for (const issue of linkedIssues) {
-              const item = projectItems.find(
-                i => i.content && i.content.id === issue.id
-              );
-
-              if (!item) {
-                console.warn(`Issue #${issue.number} not found in project — skipping`);
-                continue;
-              }
-
-              await github.graphql(updateMutation, {
-                project: PROJECT_ID,
-                item: item.id,
-                field: fieldId,
-                option: optionId
-              });
-
-              console.log(`✓ Issue #${issue.number} → ${ENVIRONMENT}: ${STATUS}`);
-              updatedCount++;
-            }
-
-            console.log(`Updated ${updatedCount} issue(s)`);
-        env:
-          PROJECT_ID: ${{ vars.WORKFLOW_PROJECT_ID }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          ENVIRONMENT: ${{ inputs.environment }}
-          STATUS: ${{ inputs.status }}
-          DEPLOY_DEV_FIELD_ID: ${{ vars.WORKFLOW_DEPLOY_DEV_FIELD_ID }}
-          DEPLOY_UAT_FIELD_ID: ${{ vars.WORKFLOW_DEPLOY_UAT_FIELD_ID }}
-          DEPLOY_PROD_FIELD_ID: ${{ vars.WORKFLOW_DEPLOY_PROD_FIELD_ID }}
-          DEPLOY_WAITING_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_WAITING_OPTION_ID }}
-          DEPLOY_DEPLOYING_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_DEPLOYING_OPTION_ID }}
-          DEPLOY_DEPLOYED_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_DEPLOYED_OPTION_ID }}
-          DEPLOY_FAILED_OPTION_ID: ${{ vars.WORKFLOW_DEPLOY_FAILED_OPTION_ID }}
+      - name: Update deploy status in Project V2
+        run: bash .github/scripts/update-deploy-status.sh
