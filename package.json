@@ -1,0 +1,17 @@
+{
+  "name": "github-workflow-cli",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start-work": "tsx tools/workflows/start-work.ts",
+    "open-pr": "tsx tools/workflows/open-pr.ts",
+    "check-status": "tsx tools/workflows/check-status.ts",
+    "discover-ids": "tsx tools/workflows/discover-ids.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.0.0",
+    "@types/node": "^22.0.0"
+  }
+}
