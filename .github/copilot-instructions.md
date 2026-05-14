@@ -1,4 +1,4 @@
-# GitHub Workflow MCP — Copilot Instructions
+# GitHub Workflow CLI — Copilot Instructions
 
 ## Context
 
@@ -6,7 +6,7 @@ This repository uses a structured engineering workflow:
 - **GitHub Issues** = tasks (source of truth)
 - **GitHub Project V2** = workflow states
 - **GitHub Actions** = lifecycle automation
-- **MCP Server** (`mcp-server/`) = orchestration tools for Copilot
+- **PowerShell CLI** (`tools/`) = developer workflow orchestration
 
 ## Workflow States
 
@@ -19,42 +19,74 @@ Deploy states (per environment):
 waiting → deploying → deployed → failed
 ```
 
-## Available MCP Tools
+## Available CLI Tools
 
-When the user asks to start work, create a branch, or update issues, use these MCP tools:
+When the user asks to start work, create a branch, or update issues, invoke these PowerShell scripts:
 
-### `start_work`
+### `tools/start-work.ps1`
 - Creates a branch and pushes it
 - Updates all linked issues to **In Progress**
-- Input: `issueNumbers[]`, optional `branchName`
+
+```powershell
+.\tools\start-work.ps1 -Issues 12,15,18
+.\tools\start-work.ps1 -Issues 12,15,18 -Branch "feat/my-branch"
+```
 
 Example triggers:
 > "start issues 12 15 18"
 > "เริ่มทำ issue 5 และ 7"
 
-### `open_pr`
+### `tools/open-pr.ps1`
 - Creates a PR with `Closes #xx` references
-- Input: `title`, `issueNumbers[]`, optional `reviewers[]`
+- Updates issues to **Code Review**
+
+```powershell
+.\tools\open-pr.ps1 -Issues 12,15,18
+.\tools\open-pr.ps1 -Issues 12,15,18 -Title "feat: my title" -Reviewers "user1"
+```
 
 Example triggers:
 > "open PR for issues 12 15 18"
 > "สร้าง PR สำหรับ issue ที่กำลังทำอยู่"
 
-### `update_deploy_status`
+### `tools/update-status.ps1`
+- Updates Project V2 status without touching git
+
+```powershell
+.\tools\update-status.ps1 -Issues 12,15,18 -Status "In Progress"
+.\tools\update-status.ps1 -Issues 12,15,18 -Status "Code Review"
+.\tools\update-status.ps1 -Issues 12,15,18 -Status "Done"
+```
+
+### `tools/update-deploy.ps1`
 - Updates deploy field in Project V2
-- Input: `prNumber`, `environment` (dev/uat/prod), `status` (waiting/deploying/deployed/failed)
+
+```powershell
+.\tools\update-deploy.ps1 -PR 42 -Env dev -Status deployed
+.\tools\update-deploy.ps1 -PR 42 -Env uat -Status deploying
+```
 
 Example triggers:
 > "mark PR 42 as deployed to dev"
 > "อัพเดต deploy status ของ PR 42 เป็น deployed บน uat"
 
-### `check_work_status`
+### `tools/check-status.ps1`
 - Summarizes current branch, PR, and linked issues
-- No input required
+
+```powershell
+.\tools\check-status.ps1
+```
 
 Example triggers:
 > "what am I working on?"
 > "สถานะงานตอนนี้คืออะไร"
+
+### `tools/discover-ids.ps1`
+- Queries Project V2 field and option IDs (run once to set up `.env`)
+
+```powershell
+.\tools\discover-ids.ps1
+```
 
 ## Branch Naming Convention
 
@@ -66,7 +98,7 @@ Example: `feat/issues-12-15-18`
 - **Do NOT parse branch names** to determine linked issues
 - **PR description** with `Closes #xx` = authoritative issue linkage
 - **GitHub Project V2** = authoritative workflow state
-- Always use MCP tools — do NOT call GitHub APIs directly
+- Always invoke CLI tools — do NOT call GitHub APIs directly from chat
 
 ## PR Description Format
 
@@ -78,3 +110,8 @@ Closes #18
 ---
 Brief description of changes
 ```
+
+## Setup
+
+Copy `.env.example` to `.env` and fill in values.  
+Run `.\tools\discover-ids.ps1` to find Project V2 option IDs.
