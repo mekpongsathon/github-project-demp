@@ -1,7 +1,29 @@
-# _github.ps1 — Shared GitHub API utilities
+﻿# _github.ps1 — Shared GitHub API utilities
 # Dot-source this file in other scripts: . "$PSScriptRoot\_github.ps1"
 
+# Global dry-run flag — set before dot-sourcing or pass -DryRun to workflows
+$global:DryRun = $false
+
 function Get-EnvConfig {
+    # Dry-run mode — skip token validation
+    if ($global:DryRun) {
+        Write-Host "  [DRY-RUN] Skipping env validation" -ForegroundColor DarkGray
+        $defaults = @{
+            GITHUB_OWNER                    = "mekpongsathon"
+            GITHUB_REPO                     = "github-project-demp"
+            WORKFLOW_PROJECT_ID             = "PVT_kwHOApQkuM4BXcog"
+            WORKFLOW_STATUS_FIELD_ID        = "PVTSSF_lAHOApQkuM4BXcogzhSpamg"
+            WORKFLOW_IN_PROGRESS_OPTION_ID  = "47fc9ee4"
+            WORKFLOW_CODE_REVIEW_OPTION_ID  = "<CODE_REVIEW_OPTION_ID>"
+            WORKFLOW_DONE_OPTION_ID         = "<DONE_OPTION_ID>"
+        }
+        foreach ($kv in $defaults.GetEnumerator()) {
+            if (-not [System.Environment]::GetEnvironmentVariable($kv.Key)) {
+                [System.Environment]::SetEnvironmentVariable($kv.Key, $kv.Value, "Process")
+            }
+        }
+        return
+    }
     # Load .env file if present
     $envFile = Join-Path (Get-Location) ".env"
     if (Test-Path $envFile) {
@@ -35,6 +57,10 @@ function Invoke-GitHubGraphQL {
         [string]$Query,
         [hashtable]$Variables = @{}
     )
+    if ($global:DryRun) {
+        Write-Host "  [DRY-RUN] GraphQL mutation — variables: $($Variables | ConvertTo-Json -Compress)" -ForegroundColor DarkGray
+        return @{}
+    }
     $token = [System.Environment]::GetEnvironmentVariable("GITHUB_TOKEN")
     $body  = @{ query = $Query; variables = $Variables } | ConvertTo-Json -Depth 10
     $headers = @{
@@ -58,6 +84,13 @@ function Invoke-GitHubREST {
         [string]$Method = "GET",
         [hashtable]$Body = $null
     )
+    if ($global:DryRun) {
+        Write-Host "  [DRY-RUN] REST $Method $Path" -ForegroundColor DarkGray
+        if ($Path -match "/pulls$") {
+            return [PSCustomObject]@{ number = 99; html_url = "https://github.com/mekpongsathon/github-project-demp/pull/99"; title = "dry-run PR" }
+        }
+        return @{}
+    }
     $token = [System.Environment]::GetEnvironmentVariable("GITHUB_TOKEN")
     $headers = @{
         Authorization         = "bearer $token"
@@ -79,6 +112,10 @@ function Invoke-GitHubREST {
 
 function Get-IssueNodeId {
     param([int]$IssueNumber)
+    if ($global:DryRun) {
+        Write-Host "  [DRY-RUN] Get-IssueNodeId #$IssueNumber" -ForegroundColor DarkGray
+        return [PSCustomObject]@{ id = "DRY_ISSUE_${IssueNumber}"; number = $IssueNumber }
+    }
     $owner = [System.Environment]::GetEnvironmentVariable("GITHUB_OWNER")
     $repo  = [System.Environment]::GetEnvironmentVariable("GITHUB_REPO")
     $data  = Invoke-GitHubGraphQL -Query @"
@@ -93,6 +130,10 @@ query(`$owner: String!, `$repo: String!, `$number: Int!) {
 
 function Get-ProjectItemId {
     param([string]$IssueNodeId)
+    if ($global:DryRun) {
+        Write-Host "  [DRY-RUN] Get-ProjectItemId for $IssueNodeId" -ForegroundColor DarkGray
+        return "DRY_ITEM_${IssueNodeId}"
+    }
     $projectId = [System.Environment]::GetEnvironmentVariable("WORKFLOW_PROJECT_ID")
     $data = Invoke-GitHubGraphQL -Query @"
 query(`$project: ID!) {
@@ -149,10 +190,10 @@ function Update-IssuesStatus {
         $issue  = Get-IssueNodeId -IssueNumber $num
         $itemId = Get-ProjectItemId -IssueNodeId $issue.id
         if (-not $itemId) {
-            Write-Warning "  ⚠  Issue #$num not found in Project V2 — skipped"
+            Write-Warning "  WARN:  Issue #$num not found in Project V2 — skipped"
             continue
         }
         Update-ProjectField -ItemId $itemId -FieldId $fieldId -OptionId $OptionId
-        Write-Host "  ✓  Issue #$num → $Label"
+        Write-Host "  OK  Issue #$num -> $Label"
     }
 }

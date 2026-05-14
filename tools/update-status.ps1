@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Update Project V2 status for issues without touching git.
 
@@ -18,10 +18,12 @@ param(
     [Parameter(Mandatory)][int[]]$Issues,
     [Parameter(Mandatory)]
     [ValidateSet("In Progress", "Code Review", "Done")]
-    [string]$Status
+    [string]$Status,
+    [switch]$DryRun
 )
 
 . "$PSScriptRoot\_github.ps1"
+if ($DryRun) { $global:DryRun = $true; Write-Host "[DRY-RUN MODE]" -ForegroundColor Yellow }
 Get-EnvConfig
 
 $optionEnvMap = @{
@@ -36,7 +38,7 @@ if (-not $optionId) {
     exit 1
 }
 
-Write-Host "`n▶ update-status: issues $($Issues | ForEach-Object { "#$_" }) → $Status`n"
+Write-Host "`n>> update-status: issues $($Issues | ForEach-Object { "#$_" }) -> $Status`n"
 Update-IssuesStatus -IssueNumbers $Issues -OptionId $optionId -Label $Status
 
-Write-Host "`n✅ Done: $($Issues.Count) issue(s) → $Status"
+Write-Host "`nDONE: Done: $($Issues.Count) issue(s) -> $Status"

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Query GitHub API to discover Project V2 field and option IDs.
 
@@ -30,7 +30,7 @@ if (-not $projectId) {
     exit 1
 }
 
-Write-Host "`n▶ discover-ids — Project: $projectId`n"
+Write-Host "`n>> discover-ids — Project: $projectId`n"
 
 $data = Invoke-GitHubGraphQL -Query @"
 query(`$project: ID!) {

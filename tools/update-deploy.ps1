@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Update Project V2 deploy field for issues linked to a PR.
 
@@ -48,7 +48,7 @@ if (-not $fieldId -or -not $optionId) {
     exit 1
 }
 
-Write-Host "`n▶ update-deploy: PR #$PR → $Env: $Status`n"
+Write-Host "`n>> update-deploy: PR #$PR -> $Env: $Status`n"
 
 # Get linked issues from PR
 $data = Invoke-GitHubGraphQL -Query @"
@@ -75,11 +75,11 @@ Write-Host "Linked issues: $($issues | ForEach-Object { "#$($_.number)" })"
 foreach ($issue in $issues) {
     $itemId = Get-ProjectItemId -IssueNodeId $issue.id
     if (-not $itemId) {
-        Write-Warning "  ⚠  Issue #$($issue.number) not in Project V2 — skipped"
+        Write-Warning "  WARN:  Issue #$($issue.number) not in Project V2 — skipped"
         continue
     }
     Update-ProjectField -ItemId $itemId -FieldId $fieldId -OptionId $optionId
-    Write-Host "  ✓  Issue #$($issue.number) → $Env: $Status"
+    Write-Host "  OK  Issue #$($issue.number) -> $Env: $Status"
 }
 
-Write-Host "`n✅ update-deploy complete"
+Write-Host "`nDONE: update-deploy complete"
