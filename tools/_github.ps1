@@ -220,3 +220,113 @@ function Update-IssuesStatus {
         Write-Host "  OK  Issue #$num -> $Label"
     }
 }
+
+# ── UAT Deploy helpers ─────────────────────────────────────────────────────────
+
+function Update-ProjectTextField {
+    # Updates a free-text Project V2 field (value: { text: "..." })
+    param(
+        [string]$ItemId,
+        [string]$FieldId,
+        [string]$Text
+    )
+    if ($global:DryRun) {
+        Write-Host "  [DRY-RUN] Update-ProjectTextField item=$ItemId field=$FieldId text=$Text" -ForegroundColor DarkGray
+        return
+    }
+    $projectId = [System.Environment]::GetEnvironmentVariable("WORKFLOW_PROJECT_ID")
+    Invoke-GitHubGraphQL -Query @"
+mutation(`$project: ID!, `$item: ID!, `$field: ID!, `$text: String!) {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: `$project
+    itemId:    `$item
+    fieldId:   `$field
+    value: { text: `$text }
+  }) {
+    projectV2Item { id }
+  }
+}
+"@ -Variables @{
+        project = $projectId
+        item    = $ItemId
+        field   = $FieldId
+        text    = $Text
+    } | Out-Null
+}
+
+function Get-ProjectFieldByName {
+    # Returns the first field whose name matches $FieldName, or $null.
+    param([string]$FieldName)
+    $projectId = [System.Environment]::GetEnvironmentVariable("WORKFLOW_PROJECT_ID")
+    $data = Invoke-GitHubGraphQL -Query @"
+query(`$project: ID!) {
+  node(id: `$project) {
+    ... on ProjectV2 {
+      fields(first: 50) {
+        nodes {
+          __typename
+          ... on ProjectV2Field             { id name }
+          ... on ProjectV2SingleSelectField { id name options { id name } }
+          ... on ProjectV2IterationField    { id name }
+        }
+      }
+    }
+  }
+}
+"@ -Variables @{ project = $projectId }
+    return $data.node.fields.nodes | Where-Object { $_.name -eq $FieldName } | Select-Object -First 1
+}
+
+function Invoke-UATDeployUpdate {
+    # High-level: update UAT Deploy Status (single-select) and optionally
+    # UAT Deploy Version (text) for a list of issue numbers.
+    param(
+        [int[]]$IssueNumbers,
+        [string]$Status,         # "deploying" | "success" | "failed"
+        [string]$Version = ""    # only applied when Status = "success"
+    )
+    $statusFieldId  = [System.Environment]::GetEnvironmentVariable("WORKFLOW_UAT_DEPLOY_STATUS_FIELD_ID")
+    $versionFieldId = [System.Environment]::GetEnvironmentVariable("WORKFLOW_UAT_DEPLOY_VERSION_FIELD_ID")
+
+    $optionEnvMap = @{
+        "deploying" = "WORKFLOW_DEPLOYING_OPTION_ID"
+        "success"   = "WORKFLOW_DEPLOY_SUCCESS_OPTION_ID"
+        "failed"    = "WORKFLOW_DEPLOY_FAILED_OPTION_ID"
+    }
+    $optionEnvVar = $optionEnvMap[$Status.ToLower()]
+    if (-not $optionEnvVar) {
+        Write-Error "Unknown Status '$Status'. Valid values: deploying, success, failed"
+        exit 1
+    }
+    $optionId = [System.Environment]::GetEnvironmentVariable($optionEnvVar)
+
+    if (-not $statusFieldId) {
+        Write-Error "WORKFLOW_UAT_DEPLOY_STATUS_FIELD_ID not set. Run .\tools\setup-uat-fields.ps1 first."
+        exit 1
+    }
+    if (-not $optionId) {
+        Write-Error "$optionEnvVar not set. Run .\tools\setup-uat-fields.ps1 first."
+        exit 1
+    }
+
+    foreach ($num in $IssueNumbers) {
+        $issue  = Get-IssueNodeId -IssueNumber $num
+        $itemId = Get-ProjectItemId -IssueNodeId $issue.id
+        if (-not $itemId) {
+            Write-Warning "  WARN:  Issue #$num not found in Project V2 — skipped"
+            continue
+        }
+
+        # Update single-select status
+        Update-ProjectField -ItemId $itemId -FieldId $statusFieldId -OptionId $optionId
+
+        # Update text version (only on success, only when version provided and field ID known)
+        $versionSuffix = ""
+        if ($Status.ToLower() -eq "success" -and $Version -and $versionFieldId) {
+            Update-ProjectTextField -ItemId $itemId -FieldId $versionFieldId -Text $Version
+            $versionSuffix = " | version: $Version"
+        }
+
+        Write-Host "  OK  Issue #$num -> UAT: $Status$versionSuffix"
+    }
+}

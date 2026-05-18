@@ -1,86 +1,50 @@
 ﻿<#
 .SYNOPSIS
-    Update Project V2 deploy field for issues linked to a PR.
+    Update UAT deploy status and version in Project V2 for specified issues.
 
 .DESCRIPTION
     Usage:
-        .\tools\update-deploy.ps1 -PR 42 -Env dev -Status deployed
-        .\tools\update-deploy.ps1 -PR 42 -Env uat -Status deploying
+        .\tools\update-deploy.ps1 -Issues "123,124" -Environment uat -Version "0.0.52" -Status success
+        .\tools\update-deploy.ps1 -Issues "123"     -Environment uat -Status deploying
+        .\tools\update-deploy.ps1 -Issues "123,124" -Environment uat -Status failed
 
-.PARAMETER PR
-    PR number to look up linked issues from.
+    Requires setup-uat-fields.ps1 to have been run at least once.
 
-.PARAMETER Env
-    Deployment environment: dev, uat, or prod.
+.PARAMETER Issues
+    Comma-separated issue numbers (e.g. "123,124").
+
+.PARAMETER Environment
+    Deployment environment. Currently supported: uat.
+
+.PARAMETER Version
+    Version string to record in "UAT Deploy Version" field (e.g. "0.0.52").
+    Applied only when -Status is "success".
 
 .PARAMETER Status
-    Deploy status: waiting, deploying, deployed, or failed.
+    Deploy status: deploying | success | failed.
 #>
 param(
-    [Parameter(Mandatory)][int]$PR,
-    [Parameter(Mandatory)][ValidateSet("dev","uat","prod")][string]$Env,
-    [Parameter(Mandatory)][ValidateSet("waiting","deploying","deployed","failed")][string]$Status
+    [Parameter(Mandatory)][string]$Issues,
+    [Parameter(Mandatory)][ValidateSet("uat")][string]$Environment,
+    [string]$Version = "",
+    [Parameter(Mandatory)][ValidateSet("deploying","success","failed")][string]$Status
 )
 
 . "$PSScriptRoot\_github.ps1"
 Get-EnvConfig
 
-$owner = [System.Environment]::GetEnvironmentVariable("GITHUB_OWNER")
-$repo  = [System.Environment]::GetEnvironmentVariable("GITHUB_REPO")
+# Parse issue numbers from comma-separated string
+$issueNumbers = $Issues -split "\s*,\s*" | ForEach-Object { [int]$_.Trim() }
 
-$fieldEnvMap = @{
-    dev  = "WORKFLOW_DEPLOY_DEV_FIELD_ID"
-    uat  = "WORKFLOW_DEPLOY_UAT_FIELD_ID"
-    prod = "WORKFLOW_DEPLOY_PROD_FIELD_ID"
+Write-Host "`n>> update-deploy"
+Write-Host "  Environment: $Environment"
+Write-Host "  Issues:      $($issueNumbers | ForEach-Object { "#$_" })"
+Write-Host "  Status:      $Status"
+if ($Version -and $Status -eq "success") {
+    Write-Host "  Version:     $Version"
 }
+Write-Host ""
 
-# Option IDs differ per environment (each deploy field has its own option IDs)
-$optionEnvVar = "WORKFLOW_DEPLOY_$($Env.ToUpper())_$($Status.ToUpper())_OPTION_ID"
-
-$fieldId  = [System.Environment]::GetEnvironmentVariable($fieldEnvMap[$Env])
-$optionId = [System.Environment]::GetEnvironmentVariable($optionEnvVar)
-
-if (-not $fieldId) {
-    Write-Error "Missing field ID for env=$Env. Set $($fieldEnvMap[$Env]) in .env"
-    exit 1
-}
-if (-not $optionId) {
-    Write-Error "Missing option ID for env=$Env status=$Status. Set $optionEnvVar in .env"
-    exit 1
-}
-
-Write-Host "`n>> update-deploy: PR #$PR -> $Env: $Status`n"
-
-# Get linked issues from PR
-$data = Invoke-GitHubGraphQL -Query @"
-query(`$owner: String!, `$repo: String!, `$number: Int!) {
-  repository(owner: `$owner, name: `$repo) {
-    pullRequest(number: `$number) {
-      closingIssuesReferences(first: 20) {
-        nodes { id number }
-      }
-    }
-  }
-}
-"@ -Variables @{ owner = $owner; repo = $repo; number = $PR }
-
-$issues = $data.repository.pullRequest.closingIssuesReferences.nodes
-
-if (-not $issues -or $issues.Count -eq 0) {
-    Write-Host "No linked issues found on PR #$PR — skipping"
-    exit 0
-}
-
-Write-Host "Linked issues: $($issues | ForEach-Object { "#$($_.number)" })"
-
-foreach ($issue in $issues) {
-    $itemId = Get-ProjectItemId -IssueNodeId $issue.id
-    if (-not $itemId) {
-        Write-Warning "  WARN:  Issue #$($issue.number) not in Project V2 — skipped"
-        continue
-    }
-    Update-ProjectField -ItemId $itemId -FieldId $fieldId -OptionId $optionId
-    Write-Host "  OK  Issue #$($issue.number) -> $Env: $Status"
-}
+Invoke-UATDeployUpdate -IssueNumbers $issueNumbers -Status $Status -Version $Version
 
 Write-Host "`nDONE: update-deploy complete"

@@ -1,0 +1,78 @@
+name: UAT Deploy
+
+on:
+  pull_request:
+    types: [closed]
+
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number linked to the deployment"
+        required: true
+        type: number
+      version:
+        description: "Deploy version (e.g. 0.0.52)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  uat-deploy:
+    # Run on manual dispatch, or when a PR is merged (not just closed)
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+      PROJECT_ID: ${{ vars.WORKFLOW_PROJECT_ID }}
+      # PR number — from dispatch input or from the PR event
+      PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
+      # Version — from dispatch input, or auto-generated from PR number for event trigger
+      DEPLOY_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || format('pr-{0}', github.event.pull_request.number) }}
+      # UAT deploy field and option IDs (set via .\tools\setup-uat-fields.ps1)
+      UAT_DEPLOY_STATUS_FIELD_ID:  ${{ vars.WORKFLOW_UAT_DEPLOY_STATUS_FIELD_ID }}
+      UAT_DEPLOY_VERSION_FIELD_ID: ${{ vars.WORKFLOW_UAT_DEPLOY_VERSION_FIELD_ID }}
+      DEPLOYING_OPTION_ID:         ${{ vars.WORKFLOW_DEPLOYING_OPTION_ID }}
+      DEPLOY_SUCCESS_OPTION_ID:    ${{ vars.WORKFLOW_DEPLOY_SUCCESS_OPTION_ID }}
+      DEPLOY_FAILED_OPTION_ID:     ${{ vars.WORKFLOW_DEPLOY_FAILED_OPTION_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set UAT Deploy Status = Deploying
+        env:
+          DEPLOY_STATUS: deploying
+        run: bash .github/scripts/update-uat-deploy.sh
+
+      - name: Run UAT deployment (fake)
+        id: deploy
+        run: |
+          echo ">> Simulating UAT deployment..."
+          echo "   PR Number: $PR_NUMBER"
+          echo "   Version:   $DEPLOY_VERSION"
+          echo "   Target:    UAT environment"
+          echo ""
+          echo "   [....] Pulling image..."
+          sleep 2
+          echo "   [....] Deploying pods..."
+          sleep 2
+          echo "   [OK  ] Health check passed"
+          echo ""
+          echo "   Deployment complete."
+
+      - name: Set UAT Deploy Status = Success
+        if: success()
+        env:
+          DEPLOY_STATUS: success
+        run: bash .github/scripts/update-uat-deploy.sh
+
+      - name: Set UAT Deploy Status = Failed
+        if: failure()
+        env:
+          DEPLOY_STATUS: failed
+        run: bash .github/scripts/update-uat-deploy.sh
